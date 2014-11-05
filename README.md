@@ -1,0 +1,4 @@
+gopkg
+=====
+
+Golang package manager
