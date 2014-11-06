@@ -21,9 +21,9 @@ packages:
 
 ```yaml
 packages:
-  yaml:gopkg.in/yaml.v2
+  yaml: gopkg.in/yaml.v2
   macaron: github.com/Unknwon/macaron
-  socket:code.google.com/p/go.net/websocket
+  socket: code.google.com/p/go.net/websocket
 ```
 
 然后运行`gopkg get`
