@@ -34,7 +34,7 @@ const (
 	version = "0.0.1"
 
 	filePerm os.FileMode = 0644 // -rw-r--r--
-	dirPerm  os.FileMode = 0774 // drwxr--r--
+	dirPerm  os.FileMode = 0755 // drwxr-xr-x
 )
 
 func printHelp() {
@@ -265,6 +265,7 @@ func getDeps(cfg string) (*gopkgCfg, error) {
 				if err != nil {
 					return nil, err
 				}
+				os.RemoveAll(toPath(pkgPath,".git"))
 			}
 
 			fmt.Println("  - " + greenText("Done") + "\n")
