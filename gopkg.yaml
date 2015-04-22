@@ -1,0 +1,8 @@
+name: gopkg
+authors:
+  - Bluek404 <i@bluek404.net>
+
+packages:
+  - name: yaml
+    git: https://github.com/go-yaml/yaml.git
+    branch: v2
