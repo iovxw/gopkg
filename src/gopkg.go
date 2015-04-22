@@ -185,6 +185,22 @@ func greenText(s string) string {
 	return "\033[32;1m" + s + "\033[0m"
 }
 
+func yellowText(s string) string {
+	return "\033[33;1m" + s + "\033[0m"
+}
+
+type gopkgCfg struct {
+	Name     string   `yaml:"name"`
+	Authors  []string `yaml:"authors"`
+	Packages []struct {
+		Name   string `yaml:"name"`
+		Git    string `yaml:"git"`
+		Rev    string `yaml:"rev"`
+		Tag    string `yaml:"tag"`
+		Branch string `yaml:"branch"`
+	} `yaml:"packages"`
+}
+
 func getDeps(cfg string) (*gopkgCfg, error) {
 	buf, err := ioutil.ReadFile(cfg)
 	if err != nil {
@@ -238,8 +254,6 @@ func getDeps(cfg string) (*gopkgCfg, error) {
 				}
 			}
 
-			// TODO: 分析每个下载的包的依赖并安装
-			// TODO: 分析非 gopkg 包的依赖并安装
 			pkgPath := toPath("src", "packages", pkg.Name)
 			if fileExists(toPath(gitPath, "gopkg.yaml")) {
 				err = copyDir(toPath(gitPath, "src"), pkgPath)
@@ -260,15 +274,22 @@ func getDeps(cfg string) (*gopkgCfg, error) {
 				if err != nil {
 					return nil, err
 				}
+				fmt.Println("  - " + greenText("Done") + "\n")
+
+				_, err := getDeps(toPath(gitPath, "gopkg.yaml"))
+				if err != nil {
+					return nil, err
+				}
 			} else {
 				err = copyDir(gitPath, pkgPath)
 				if err != nil {
 					return nil, err
 				}
 				os.RemoveAll(toPath(pkgPath, ".git"))
-			}
+				fmt.Println("  - "+greenText("Done"), "["+yellowText("Not used GoPKG")+"]\n")
 
-			fmt.Println("  - " + greenText("Done") + "\n")
+				// TODO: 分析非 gopkg 包的依赖并安装
+			}
 		}
 	}
 	return p, nil
@@ -325,16 +346,4 @@ func main() {
 	default:
 		printHelp()
 	}
-}
-
-type gopkgCfg struct {
-	Name     string   `yaml:"name"`
-	Authors  []string `yaml:"authors"`
-	Packages []struct {
-		Name   string `yaml:"name"`
-		Git    string `yaml:"git"`
-		Rev    string `yaml:"rev"`
-		Tag    string `yaml:"tag"`
-		Branch string `yaml:"branch"`
-	} `yaml:"packages"`
 }
