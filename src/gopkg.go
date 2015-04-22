@@ -265,7 +265,7 @@ func getDeps(cfg string) (*gopkgCfg, error) {
 				if err != nil {
 					return nil, err
 				}
-				os.RemoveAll(toPath(pkgPath,".git"))
+				os.RemoveAll(toPath(pkgPath, ".git"))
 			}
 
 			fmt.Println("  - " + greenText("Done") + "\n")
@@ -282,6 +282,15 @@ func build(name string) {
 }
 
 func main() {
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = os.Setenv("GOPATH", wd)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	switch getArg(1) {
 	case "new":
 		isLib := flag.Bool("lib", false, "create a library")
@@ -292,7 +301,7 @@ func main() {
 		getDeps("gopkg.yaml")
 		flag.CommandLine.Parse(os.Args[2:])
 		path := flag.Arg(0)
-		err := runCommand("go", "test", toPath(".", "src", path))
+		err = runCommand("go", "test", toPath(".", "src", path))
 		if err != nil {
 			os.Exit(1)
 		}
