@@ -17,6 +17,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,9 +26,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"packages/yaml"
-	"strings"
 )
 
 const (
@@ -177,10 +178,6 @@ func copyDir(src, dst string) error {
 	})
 }
 
-func blueText(s string) string {
-	return "\033[34;1m" + s + "\033[0m"
-}
-
 func greenText(s string) string {
 	return "\033[32;1m" + s + "\033[0m"
 }
@@ -201,8 +198,88 @@ type gopkgCfg struct {
 	} `yaml:"packages"`
 }
 
-func getDeps(cfg string) (*gopkgCfg, error) {
-	buf, err := ioutil.ReadFile(cfg)
+func isSrcFile(fileName string) bool {
+	fileNameLen := len(fileName)
+	srcFileList := []string{".go", ".c", ".h", ".s", ".cpp"}
+	for _, srcFile := range srcFileList {
+		srcFileLen := len(srcFile)
+		if fileNameLen > srcFileLen {
+			if fileName[fileNameLen-srcFileLen:] == srcFile {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func haveSrcFiles(path string) bool {
+	var haveSrcFilesErr = errors.New("YES")
+	err := filepath.Walk(path, func(p string, f os.FileInfo, err error) error {
+		if f == nil {
+			return err
+		}
+		if f.IsDir() {
+			return nil
+		}
+		if isSrcFile(f.Name()) {
+			return haveSrcFilesErr
+		}
+
+		return nil
+	})
+	if err == haveSrcFilesErr {
+		return true
+	}
+	return false
+}
+
+// 将普通 package 转换为 gopkg 的格式
+func conToGopkg(path string) error {
+	srcPath := toPath(path, "src")
+	err := os.Mkdir(srcPath, dirPerm)
+	if err != nil {
+		return err
+	}
+	ignoreDir := []string{toPath(path, ".git"), srcPath}
+
+	// move all source files to ./src
+	err = filepath.Walk(path, func(p string, f os.FileInfo, err error) error {
+		if f == nil {
+			return err
+		}
+		if f.IsDir() {
+			if haveSrcFiles(path) {
+				return os.MkdirAll(p, dirPerm)
+			}
+			ignoreDir = append(ignoreDir, p)
+			return nil
+		}
+
+		for _, dirName := range ignoreDir {
+			if p[:len(dirName)] == dirName {
+				return nil
+			}
+		}
+
+		file := strings.Replace(p, path, "", 1)
+		if isSrcFile(file) {
+			_, err = copyFile(p, toPath(srcPath, file))
+			if err != nil {
+				return err
+			}
+			return os.Remove(p)
+		}
+
+		return nil
+	})
+
+	// TODO: 自动分析 package 依赖
+	// TODO: 自动将 package 转换为 gopkg 格式并生成 gopkg.yaml
+	return nil
+}
+
+func getDeps(path string) (*gopkgCfg, error) {
+	buf, err := ioutil.ReadFile(toPath(path, "gopkg.yaml"))
 	if err != nil {
 		return nil, err
 	}
@@ -212,83 +289,83 @@ func getDeps(cfg string) (*gopkgCfg, error) {
 		return nil, err
 	}
 
-	tempDir := toPath(os.TempDir(), "gopkg"+randomStr())
+	tempDir := toPath(os.TempDir(), "gopkg-"+randomStr())
+	//defer os.RemoveAll(tempDir)
 	for _, pkg := range p.Packages {
-		fmt.Println(greenText("Getting"), pkg.Name, "["+pkg.Git+"]")
-		if pkg.Branch != "" {
-			fmt.Println("  - Branch:", pkg.Branch)
-		}
-		if pkg.Tag != "" {
-			fmt.Println("  - Tag:", pkg.Tag)
-		}
-		if pkg.Rev != "" {
-			fmt.Println("  - Rev:", pkg.Rev)
-		}
-
 		pkgDir := toPath("src", "packages", pkg.Name)
 		if dirExists(pkgDir) {
-			fmt.Println("  - " + blueText("Already exists") + "\n")
 			continue
 		} else {
+			fmt.Println(greenText("Getting"), pkg.Name, "["+pkg.Git+"]")
+
 			gitPath := toPath(tempDir, pkg.Name)
 			err := runCommand("git", "clone", "-q", pkg.Git, gitPath)
 			if err != nil {
 				os.Exit(1)
 			}
 			if pkg.Branch != "" {
+				fmt.Println("  - Branch:", pkg.Branch)
 				err = runCommandInDir(gitPath, "git", "checkout", "-q", pkg.Branch)
 				if err != nil {
 					os.Exit(1)
 				}
 			}
 			if pkg.Tag != "" {
+				fmt.Println("  - Tag:", pkg.Tag)
 				err = runCommandInDir(gitPath, "git", "checkout", "-q", pkg.Tag)
 				if err != nil {
 					os.Exit(1)
 				}
 			}
 			if pkg.Rev != "" {
+				fmt.Println("  - Rev:", pkg.Rev)
 				err = runCommandInDir(gitPath, "git", "reset", "-q", "--hard", pkg.Rev)
 				if err != nil {
 					os.Exit(1)
 				}
 			}
 
+			if !fileExists(toPath(gitPath, "gopkg.yaml")) {
+				fmt.Println("  - [" + yellowText("Not used GoPKG") + "]\n")
+
+				err = conToGopkg(gitPath)
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			pkgPath := toPath("src", "packages", pkg.Name)
-			if fileExists(toPath(gitPath, "gopkg.yaml")) {
-				err = copyDir(toPath(gitPath, "src"), pkgPath)
-				if err != nil {
-					return nil, err
+			// 将 src 内源码移到 packages 目录中
+			err = copyDir(toPath(gitPath, "src"), pkgPath)
+			if err != nil {
+				return nil, err
+			}
+			// 将剩余其他文件移到 packages 目录中（README、LICENSE等等）
+			err = filepath.Walk(gitPath, func(path string, f os.FileInfo, err error) error {
+				if f == nil {
+					return err
 				}
-				err = filepath.Walk(gitPath, func(path string, f os.FileInfo, err error) error {
-					if f == nil {
-						return err
-					}
-					if f.IsDir() {
-						return nil
-					} else {
-						_, err := copyFile(path, toPath(pkgPath, f.Name()))
-						return err
-					}
-				})
-				if err != nil {
-					return nil, err
+				if f.IsDir() {
+					return nil
 				}
-				fmt.Println("  - " + greenText("Done") + "\n")
+				_, err = copyFile(path, toPath(pkgPath, f.Name()))
+				return err
+			})
+			if err != nil {
+				return nil, err
+			}
 
-				_, err := getDeps(toPath(gitPath, "gopkg.yaml"))
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				err = copyDir(gitPath, pkgPath)
-				if err != nil {
-					return nil, err
-				}
-				os.RemoveAll(toPath(pkgPath, ".git"))
-				fmt.Println("  - "+greenText("Done"), "["+yellowText("Not used GoPKG")+"]\n")
+			// move ./src/packages/xxxx/packages to
+			// ./src/packages
+			pkgPkgPath := toPath(pkgPath, "packages")
+			copyDir(pkgPkgPath, toPath("src", "packages"))
+			os.RemoveAll(pkgPkgPath)
 
-				// TODO: 分析非 gopkg 包的依赖并安装
+			fmt.Println("  - " + greenText("Done") + "\n")
+
+			_, err = getDeps(gitPath)
+			if err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -319,15 +396,15 @@ func main() {
 		name := flag.Arg(0)
 		newPackage(name, *isLib)
 	case "test":
-		getDeps("gopkg.yaml")
+		getDeps(".")
 		flag.CommandLine.Parse(os.Args[2:])
 		path := flag.Arg(0)
-		err = runCommand("go", "test", toPath(".", "src", path))
+		err := runCommand("go", "test", toPath(".", "src", path))
 		if err != nil {
 			os.Exit(1)
 		}
 	case "run":
-		p, err := getDeps("gopkg.yaml")
+		p, err := getDeps(".")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -338,7 +415,7 @@ func main() {
 			log.Fatal(err)
 		}
 	case "build":
-		p, err := getDeps("gopkg.yaml")
+		p, err := getDeps(".")
 		if err != nil {
 			log.Fatal(err)
 		}
