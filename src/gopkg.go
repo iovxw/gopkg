@@ -273,8 +273,7 @@ func conToGopkg(path string) error {
 		return nil
 	})
 
-	// TODO: 自动分析 package 依赖
-	// TODO: 自动将 package 转换为 gopkg 格式并生成 gopkg.yaml
+	// TODO: 自动分析 package 依赖并生成 gopkg.yaml
 	return nil
 }
 
